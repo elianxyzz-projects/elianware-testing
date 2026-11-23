@@ -2,6 +2,12 @@
 
 This repository contains the **CV integration groundwork** previously staged in `elianxyzz-projects/aeroclone`. The AeroV4 application and loader remain in [aeroclone](https://github.com/elianxyzz-projects/aeroclone).
 
+## Isolated Elian testing loader
+
+The new [loader.lua](loader.lua) is an experimental Elian script build placed **only in this testing repository**. It uses a separate `elianware_testing/` filesystem tree for settings, profiles, cached libraries, assets and GUI files, rather than AeroV4's `aerov4/` tree. Upstream Lua sources are rewritten before execution to use the test namespace, including shared runtime keys (`shared.elianTestingVape` instead of `shared.vape`). The default teleport reload URL points back to this repository.
+
+**Testing status:** This has not been run in a Roblox executor, so full runtime isolation and compatibility are not yet verified. Existing AeroV4 settings are not imported into the new test folder, and the standard AeroV4 installation is not modified by this repository update. Running multiple clients simultaneously can still cause conflicts at the game-hook level even with separate profile storage.
+
 ## Files
 - [Integration requirements](experimental/CATVAPE_CV_INTEGRATION.md): planned Hitreg Adjuster (CV), SilentAim (CV), and Hitboxes (CV) functionality, dependencies, and blockers.
 - [Sword timing helper](experimental/cv_swordtiming.lua): standalone arithmetic routines; not a functional hit-registration module.
