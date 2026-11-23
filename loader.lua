@@ -387,7 +387,7 @@ writefile('elianware_testing/main.lua', newMain)
 -- No saved profile -> modules stay disabled; saved profile -> prior enabled
 -- module choices and all settings are restored automatically.
 -- Load the supplied Elian banner as a local custom asset.
-local imageURL = 'https://raw.githubusercontent.com/elianxyzz-projects/elianware/main/assets/elian.png'
+local imageURL = 'https://raw.githubusercontent.com/elianxyzz-projects/catvape-cv-modules/main/assets/elian.png'
 local imageOK, imageBytes = pcall(function() return game:HttpGet(imageURL, true) end)
 if imageOK and type(imageBytes) == 'string' and #imageBytes > 1000 then
     writefile('elianware_testing/assets/new/elian.png', imageBytes)
