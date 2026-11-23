@@ -135,7 +135,7 @@ end
 -- Pinning this known upstream snapshot prevents unexpected upstream changes.
 local UPSTREAM_COMMIT = 'b723802d331778a362bfbd475fc2fb6f831c3fc1'
 local UPSTREAM_BASE = 'https://raw.githubusercontent.com/wrealaero/aerov4/' .. UPSTREAM_COMMIT .. '/'
-local DEFAULT_SELF_URL = 'https://raw.githubusercontent.com/elianxyzz-projects/catvape-cv-modules/main/loader.lua'
+local DEFAULT_SELF_URL = 'https://raw.githubusercontent.com/elianxyzz-projects/elianware-testing/main/loader.lua'
 local env = getgenv()
 local SELF_URL = env.ElianTestingURL or DEFAULT_SELF_URL
 
@@ -387,7 +387,7 @@ writefile('elianware_testing/main.lua', newMain)
 -- No saved profile -> modules stay disabled; saved profile -> prior enabled
 -- module choices and all settings are restored automatically.
 -- Load the supplied Elian banner as a local custom asset.
-local imageURL = 'https://raw.githubusercontent.com/elianxyzz-projects/catvape-cv-modules/main/assets/elian.png'
+local imageURL = 'https://raw.githubusercontent.com/elianxyzz-projects/elianware-testing/main/assets/elian.png'
 local imageOK, imageBytes = pcall(function() return game:HttpGet(imageURL, true) end)
 if imageOK and type(imageBytes) == 'string' and #imageBytes > 1000 then
     writefile('elianware_testing/assets/new/elian.png', imageBytes)
