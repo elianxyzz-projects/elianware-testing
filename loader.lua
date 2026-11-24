@@ -615,6 +615,7 @@ do
         local player = players.LocalPlayer
         local BLOCK = 3
         local MAX_DEPTH = 512
+        local VOID_DEPTH = 150
         -- Provisional BedWars damage curve; verify in private matches.
         local SAFE_DROP = 21
         local DAMAGE_PER_STUD = 1
@@ -717,7 +718,7 @@ do
                     table.insert(depths, hit and math.max(0, footY - hit.Position.Y) or math.huge)
                 end
                 table.sort(depths)
-                if depths[2] == math.huge then return math.huge end
+                if depths[2] > VOID_DEPTH then return math.huge end
                 maxDrop = math.max(maxDrop, depths[2])
             end
             return math.floor(math.max(0, maxDrop - SAFE_DROP) * DAMAGE_PER_STUD + 0.5)
@@ -791,7 +792,7 @@ do
                     local base = screen.AbsolutePosition
                     label.Position = UDim2.fromOffset(
                         pos.X + size.X * 0.5 - base.X, pos.Y - base.Y - 4)
-                    label.Text = damage == math.huge and 'Fall damage: no ground'
+                    label.Text = damage == math.huge and 'Void'
                         or ('Est. fall damage: ' .. tostring(damage) .. ' HP')
                     label.Visible = true
                 end))
