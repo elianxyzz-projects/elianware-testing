@@ -721,6 +721,7 @@ do
                 if depths[2] > VOID_DEPTH then return math.huge end
                 maxDrop = math.max(maxDrop, depths[2])
             end
+            if maxDrop < 5 * BLOCK then return -1 end
             return math.floor(math.max(0, maxDrop - SAFE_DROP) * DAMAGE_PER_STUD + 0.5)
         end
 
@@ -793,6 +794,7 @@ do
                     label.Position = UDim2.fromOffset(
                         pos.X + size.X * 0.5 - base.X, pos.Y - base.Y - 4)
                     label.Text = damage == math.huge and 'Void'
+                        or (damage == -1 and 'Safe')
                         or ('Est. fall damage: ' .. tostring(damage) .. ' HP')
                     label.Visible = true
                 end))
