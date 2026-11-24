@@ -615,11 +615,11 @@ if gameFileId == 6872274481 then
     bedwarsSource = capSlider(bedwarsSource, 'Mine = Reach:CreateSlider({', 16)
     bedwarsSource = capSlider(bedwarsSource, 'FOV = SilentAim:CreateSlider({', 100)
     bedwarsSource = patchHitFix(bedwarsSource)
-    -- Experimental read-only fall preview; prepend so upstream terminal returns remain valid.
+    -- Read-only fall preview; prepend so upstream terminal returns remain valid.
     bedwarsSource = [==[
 do
     local api = shared.vape
-    local category = api and api.Categories['Experimental (Ban)']
+    local category = api and api.Categories.Render
     if category then
         local players = game:GetService('Players')
         local runService = game:GetService('RunService')
@@ -842,7 +842,7 @@ do
                     local pos, size = bar.AbsolutePosition, bar.AbsoluteSize
                     local base = screen.AbsolutePosition
                     label.Position = UDim2.fromOffset(
-                        pos.X + size.X * 0.5 - base.X, pos.Y - base.Y - 4)
+                        pos.X + size.X * 0.5 - base.X, pos.Y - base.Y - 9)
                     label.Text = damage == math.huge and 'Void'
                         or (damage == -1 and 'Safe')
                         or ('Est. fall damage: ' .. tostring(damage) .. ' HP')
