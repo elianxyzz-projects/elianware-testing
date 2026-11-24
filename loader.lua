@@ -865,7 +865,7 @@ do
         local runService = game:GetService('RunService')
         local input = game:GetService('UserInputService')
         local positions = {}
-        local W, H, N = 216, 104, 48
+        local W, H, N = 216, 122, 48
         local function register(name, title, units, slot, period, sample, eventMode, tooltip)
             local module
             module = category:CreateModule({
@@ -917,7 +917,9 @@ do
                     end
                     local header = textLabel(frame,title,8,0,W-16,23,12)
                     header.Active = true
-                    local readout = textLabel(frame,'Waiting for data',8,79,W-16,21,11)
+                    local readout = textLabel(frame,'Waiting for data',8,79,W-16,19,11)
+                    local spikeReadout = textLabel(frame,'Last spike: --',8,98,W-16,19,11)
+                    spikeReadout.TextColor3 = Color3.fromRGB(245,185,91)
                     local plot = Instance.new('Frame')
                     plot.Position = UDim2.fromOffset(8,24)
                     plot.Size = UDim2.fromOffset(W-16,54)
@@ -925,7 +927,20 @@ do
                     plot.BorderSizePixel = 0
                     plot.ClipsDescendants = true
                     plot.Parent = frame
-                    local bars, values = {}, {}
+                    local bars, values, recent = {}, {}, {}
+                    local lastValue, lastSpike, lastSpikeAt
+                    local function average(now)
+                        while recent[1] and now - recent[1].at > 5 do table.remove(recent,1) end
+                        if #recent == 0 then return nil end
+                        local sum = 0
+                        for _, v in ipairs(recent) do sum = sum + v.value end
+                        return sum / #recent
+                    end
+                    local function refresh(now)
+                        local avg = average(now)
+                        readout.Text = lastValue ~= nil and string.format('Now %.1f | 5s avg %s %s', lastValue, avg and string.format('%.1f',avg) or '--',units) or 'Waiting for data'
+                        spikeReadout.Text = lastSpikeAt and string.format('Spike %.1f %s | %.1fs ago',lastSpike,units,now-lastSpikeAt) or 'Last spike: --'
+                    end
                     for i = 1,N do
                         local bar = Instance.new('Frame')
                         bar.AnchorPoint = Vector2.new(0,1)
@@ -937,20 +952,28 @@ do
                     end
                     local function push(value)
                         if type(value) ~= 'number' or value ~= value or value == math.huge or value < 0 then return end
-                        values[#values+1] = value
+                        local now = os.clock()
+                        local baseline = average(now)
+                        local minimum = ({CombatPing = 10, HitDelayGraph = 30, FrameTimeGraph = 2, DamageTakenGraph = 3, MovementSpeedGraph = 2})[name] or 1
+                        local spike = baseline ~= nil and #recent >= 3 and value > baseline * 1.5 and value - baseline >= minimum
+                        if spike then lastSpike, lastSpikeAt = value, now end
+                        lastValue = value
+                        recent[#recent+1] = {at = now, value = value}
+                        values[#values+1] = {value = value, spike = spike}
                         if #values > N then table.remove(values,1) end
                         local max = 1
-                        for _, v in ipairs(values) do max = math.max(max,v) end
+                        for _, v in ipairs(values) do max = math.max(max,v.value) end
                         local step = (W-16)/N
                         for i, bar in ipairs(bars) do
                             local v = values[i - (N-#values)]
                             bar.Visible = v ~= nil
                             if v then
                                 bar.Position = UDim2.fromOffset((i-1)*step,54)
-                                bar.Size = UDim2.fromOffset(math.max(1,step-1),math.max(1, v/max*53))
+                                bar.Size = UDim2.fromOffset(math.max(1,step-1),math.max(1, v.value/max*53))
+                                bar.BackgroundColor3 = v.spike and Color3.fromRGB(245,185,91) or Color3.fromRGB(52,162,245)
                             end
                         end
-                        readout.Text = string.format('Now %.1f %s   |   Peak %.1f',value,units,max)
+                        refresh(now)
                     end
                     local drag, start, from
                     module:Clean(header.InputBegan:Connect(function(obj)
@@ -970,9 +993,12 @@ do
                         if obj == drag then drag = nil end
                     end))
                     local elapsed, frames, previous, previousAt, tracked, healthConn = 0,0,nil,nil,nil,nil
+                    local refreshElapsed = 0
                     module:Clean(function() if healthConn then healthConn:Disconnect() end end)
                     module:Clean(runService.Heartbeat:Connect(function(dt)
                         if not module.Enabled then return end
+                        refreshElapsed = refreshElapsed + dt
+                        if refreshElapsed >= 0.25 then refreshElapsed = 0; refresh(os.clock()) end
                         local char = player.Character
                         local hum = char and char:FindFirstChildOfClass('Humanoid')
                         if eventMode and hum ~= tracked then
