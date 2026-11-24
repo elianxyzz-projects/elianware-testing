@@ -221,7 +221,13 @@ local filterCode = [==[
             FPSBoost = true,
             AutoTool = true,
             Freecam = true,
-            FOV = true
+            FOV = true,
+            FallDamageHUD = true,
+            CombatPing = true,
+            HitDelayGraph = true,
+            FrameTimeGraph = true,
+            DamageTakenGraph = true,
+            MovementSpeedGraph = true
         }
         local keepCategories = {
             Main = true,
@@ -237,7 +243,8 @@ local filterCode = [==[
             Kits = true,
             Minigames = true,
             Legit = true,
-            ['Experimental (Ban)'] = true
+            ['Experimental (Ban)'] = true,
+            Debug = true
         }
         local function pruneModules(tab)
             if type(tab) ~= 'table' then return end
@@ -479,6 +486,10 @@ customGUI = replaceOnce(customGUI,
     "mainapi.Categories.Main:CreateDivider('misc')",
     "if game.GameId == 2619619496 then\n    mainapi:CreateCategory({\n        Name = 'Experimental (Ban)',\n        Icon = getcustomasset('aerov4/assets/new/blatanticon.png'),\n        Size = UDim2.fromOffset(14, 14)\n    })\n    local experimental = mainapi.Categories['Experimental (Ban)']\n    if experimental and experimental.Object then\n        experimental.Object.Position = UDim2.fromOffset(466, 120)\n        if experimental.Button and experimental.Button.Object then\n            experimental.Button.Object.Visible = true\n        end\n    end\nend\nmainapi.Categories.Main:CreateDivider('misc')",
     'experimental category')
+customGUI = replaceOnce(customGUI,
+    "mainapi.Categories.Main:CreateDivider('misc')",
+    "if game.GameId == 2619619496 then\n    mainapi:CreateCategory({Name = 'Debug', Icon = getcustomasset('aerov4/assets/new/blatanticon.png'), Size = UDim2.fromOffset(14, 14)})\n    local debugCategory = mainapi.Categories.Debug\n    if debugCategory and debugCategory.Object then debugCategory.Object.Position = UDim2.fromOffset(686, 120) end\nend\nmainapi.Categories.Main:CreateDivider('misc')",
+    'debug category')
 writefile('elianware_testing/guis/new.lua', elianNamespaceSource(customGUI))
 -- Preserve the upstream AeroV4 implementations of Freecam and FOV.
 -- Freecam's original registration is in World; move only that module to Legit.
@@ -839,6 +850,170 @@ do
                 end))
             end
         })
+    end
+end
+]==] .. '\n' .. bedwarsSource
+end
+-- Read-only local diagnostics. No remotes, combat hooks or damage modification.
+if gameFileId == 6872274481 then
+    bedwarsSource = [==[
+do
+    local api = shared.vape
+    local category = api and api.Categories.Debug
+    if category then
+        local player = game:GetService('Players').LocalPlayer
+        local runService = game:GetService('RunService')
+        local input = game:GetService('UserInputService')
+        local positions = {}
+        local W, H, N = 216, 104, 48
+        local function register(name, title, units, slot, period, sample, eventMode, tooltip)
+            local module
+            module = category:CreateModule({
+                Name = name,
+                Tooltip = tooltip,
+                Function = function(enabled)
+                    if not enabled or not module.Enabled then return end
+                    local pg = player:FindFirstChildOfClass('PlayerGui')
+                    if not pg then return end
+                    local screen = Instance.new('ScreenGui')
+                    screen.Name = 'ElianDebug' .. name
+                    screen.ResetOnSpawn = false
+                    screen.DisplayOrder = 15
+                    screen.Parent = pg
+                    module:Clean(screen)
+                    local frame = Instance.new('Frame')
+                    frame.Size = UDim2.fromOffset(W, H)
+                    frame.BackgroundColor3 = Color3.fromRGB(23, 27, 36)
+                    frame.BackgroundTransparency = 0.08
+                    frame.BorderSizePixel = 0
+                    frame.Parent = screen
+                    local round = Instance.new('UICorner')
+                    round.CornerRadius = UDim.new(0, 6)
+                    round.Parent = frame
+                    local function place(x, y)
+                        local camera = workspace.CurrentCamera
+                        local view = camera and camera.ViewportSize or Vector2.new(800, 600)
+                        x = math.clamp(x, 0, math.max(0, view.X - W))
+                        y = math.clamp(y, 0, math.max(0, view.Y - H - 36))
+                        frame.Position = UDim2.fromOffset(x, y)
+                        positions[name] = Vector2.new(x, y)
+                    end
+                    local view = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(800,600)
+                    local saved = positions[name]
+                    place(saved and saved.X or view.X - W - 12 - math.floor((slot-1)/3)*(W+8),
+                          saved and saved.Y or 65 + ((slot-1)%3)*(H+8))
+                    local function textLabel(parent, text, x, y, w, h, size)
+                        local label = Instance.new('TextLabel')
+                        label.BackgroundTransparency = 1
+                        label.Position = UDim2.fromOffset(x,y)
+                        label.Size = UDim2.fromOffset(w,h)
+                        label.Font = Enum.Font.Gotham
+                        label.TextSize = size
+                        label.TextColor3 = Color3.fromRGB(225,232,245)
+                        label.TextXAlignment = Enum.TextXAlignment.Left
+                        label.Text = text
+                        label.Parent = parent
+                        return label
+                    end
+                    local header = textLabel(frame,title,8,0,W-16,23,12)
+                    header.Active = true
+                    local readout = textLabel(frame,'Waiting for data',8,79,W-16,21,11)
+                    local plot = Instance.new('Frame')
+                    plot.Position = UDim2.fromOffset(8,24)
+                    plot.Size = UDim2.fromOffset(W-16,54)
+                    plot.BackgroundColor3 = Color3.fromRGB(14,18,25)
+                    plot.BorderSizePixel = 0
+                    plot.ClipsDescendants = true
+                    plot.Parent = frame
+                    local bars, values = {}, {}
+                    for i = 1,N do
+                        local bar = Instance.new('Frame')
+                        bar.AnchorPoint = Vector2.new(0,1)
+                        bar.BorderSizePixel = 0
+                        bar.BackgroundColor3 = Color3.fromRGB(52,162,245)
+                        bar.Visible = false
+                        bar.Parent = plot
+                        bars[i] = bar
+                    end
+                    local function push(value)
+                        if type(value) ~= 'number' or value ~= value or value == math.huge or value < 0 then return end
+                        values[#values+1] = value
+                        if #values > N then table.remove(values,1) end
+                        local max = 1
+                        for _, v in ipairs(values) do max = math.max(max,v) end
+                        local step = (W-16)/N
+                        for i, bar in ipairs(bars) do
+                            local v = values[i - (N-#values)]
+                            bar.Visible = v ~= nil
+                            if v then
+                                bar.Position = UDim2.fromOffset((i-1)*step,54)
+                                bar.Size = UDim2.fromOffset(math.max(1,step-1),math.max(1, v/max*53))
+                            end
+                        end
+                        readout.Text = string.format('Now %.1f %s   |   Peak %.1f',value,units,max)
+                    end
+                    local drag, start, from
+                    module:Clean(header.InputBegan:Connect(function(obj)
+                        if obj.UserInputType == Enum.UserInputType.MouseButton1 or obj.UserInputType == Enum.UserInputType.Touch then
+                            drag, start, from = obj, obj.Position, frame.AbsolutePosition
+                            from = Vector2.new(frame.Position.X.Offset,frame.Position.Y.Offset)
+                        end
+                    end))
+                    module:Clean(input.InputChanged:Connect(function(obj)
+                        if not drag then return end
+                        if obj == drag or (drag.UserInputType == Enum.UserInputType.MouseButton1 and obj.UserInputType == Enum.UserInputType.MouseMovement) then
+                            local delta = obj.Position-start
+                            place(from.X+delta.X,from.Y+delta.Y)
+                        end
+                    end))
+                    module:Clean(input.InputEnded:Connect(function(obj)
+                        if obj == drag then drag = nil end
+                    end))
+                    local elapsed, frames, previous, previousAt, tracked, healthConn = 0,0,nil,nil,nil,nil
+                    module:Clean(function() if healthConn then healthConn:Disconnect() end end)
+                    module:Clean(runService.Heartbeat:Connect(function(dt)
+                        if not module.Enabled then return end
+                        local char = player.Character
+                        local hum = char and char:FindFirstChildOfClass('Humanoid')
+                        if eventMode and hum ~= tracked then
+                            if healthConn then healthConn:Disconnect(); healthConn = nil end
+                            tracked, previousAt = hum,nil
+                            previous = hum and hum.Health
+                            if hum then
+                                healthConn = hum.HealthChanged:Connect(function(hp)
+                                    local old = previous
+                                    previous = hp
+                                    if not old or hp >= old then return end
+                                    local now = os.clock()
+                                    if eventMode == 'interval' then
+                                        if previousAt and now-previousAt <= 10 then push((now-previousAt)*1000) end
+                                        previousAt = now
+                                    else push(old-hp) end
+                                end)
+                            end
+                        end
+                        if eventMode then return end
+                        elapsed,frames = elapsed+dt,frames+1
+                        if elapsed < period then return end
+                        local ok,value = pcall(sample,elapsed,frames,char,hum)
+                        elapsed,frames = 0,0
+                        if ok and value ~= nil then push(value) end
+                    end))
+                end
+            })
+        end
+        register('CombatPing','Combat ping','ms',1,0.25,function()
+            local item = game:GetService('Stats').Network.ServerStatsItem:FindFirstChild('Data Ping')
+            return item and item:GetValue() or player:GetNetworkPing()*1000
+        end,nil,'Live connection latency; sampled continuously, not just in combat.')
+        register('HitDelayGraph','Incoming hit delay','ms',2,0,nil,'interval',
+            'Intervals between local health losses, not confirmed outgoing hits. Resets interval after 10 seconds.')
+        register('FrameTimeGraph','Frame time','ms',3,0.25,function(dt,frames) return dt/frames*1000 end,nil,'Average client frame duration.')
+        register('DamageTakenGraph','Damage taken','HP',4,0,nil,'damage','Local health decreases, including environmental damage.')
+        register('MovementSpeedGraph','Movement speed','stud/s',5,0.15,function(_,_,char)
+            local root = char and char:FindFirstChild('HumanoidRootPart')
+            if root then local v = root.AssemblyLinearVelocity; return Vector3.new(v.X,0,v.Z).Magnitude end
+        end,nil,'Local horizontal movement speed.')
     end
 end
 ]==] .. '\n' .. bedwarsSource
