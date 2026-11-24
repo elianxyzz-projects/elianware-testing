@@ -756,20 +756,43 @@ do
                 corner.Parent = label
 
                 local bar, elapsed, scanElapsed = nil, 0.1, 1
+                local trackedCharacter, latestEstimate, frozenEstimate
+                local falling, holdUntil = false, nil
+                local LAND_HOLD = 1.5
                 module:Clean(runService.Heartbeat:Connect(function(dt)
                     if not module.Enabled or not screen.Parent then return end
                     elapsed = elapsed + dt
                     scanElapsed = scanElapsed + dt
-                    if elapsed < 0.1 then return end
-                    elapsed = 0
                     local character = player.Character
                     local humanoid = character and character:FindFirstChildOfClass('Humanoid')
                     local root = character and character:FindFirstChild('HumanoidRootPart')
-                    if not humanoid or humanoid.Health <= 0 or not root then
-                        label.Visible = false
+                    if trackedCharacter ~= character or not humanoid or humanoid.Health <= 0 or not root then
+                        trackedCharacter = character
+                        latestEstimate, frozenEstimate = nil, nil
+                        falling, holdUntil = false, nil
                         bar = nil
-                        return
+                        label.Visible = false
+                        if not humanoid or humanoid.Health <= 0 or not root then return end
                     end
+
+                    -- Track transitions every frame, independently of the 10 Hz raycasts.
+                    local now = os.clock()
+                    local grounded = humanoid.FloorMaterial ~= Enum.Material.Air
+                    if falling and grounded then
+                        falling = false
+                        holdUntil = now + LAND_HOLD
+                    elseif not falling and not grounded and root.AssemblyLinearVelocity.Y < -0.5 then
+                        falling = true
+                        frozenEstimate = latestEstimate
+                        holdUntil = nil
+                    end
+                    if not falling and holdUntil and now >= holdUntil then
+                        holdUntil = nil
+                        frozenEstimate = nil
+                    end
+
+                    if elapsed < 0.1 then return end
+                    elapsed = 0
                     if scanElapsed >= 1 then
                         scanElapsed = 0
                         bar = findHealthBar(playerGui, screen, humanoid)
@@ -784,8 +807,24 @@ do
                     pcall(function() screen.ScreenInsets = sourceGui.ScreenInsets end)
                     screen.DisplayOrder = sourceGui.DisplayOrder + 1
 
-                    local ok, damage = pcall(preview, character, root, humanoid)
-                    if not ok or damage == nil then
+                    -- Keep a fresh estimate outside a fall, including during the landing hold.
+                    -- During a fall, use the snapshot rather than the shrinking remaining distance.
+                    if not falling or frozenEstimate == nil then
+                        local ok, estimate = pcall(preview, character, root, humanoid)
+                        if ok and estimate ~= nil then
+                            latestEstimate = estimate
+                            if falling and frozenEstimate == nil then frozenEstimate = estimate end
+                        elseif not falling then
+                            latestEstimate = nil
+                        end
+                    end
+                    local damage
+                    if falling or holdUntil then
+                        damage = frozenEstimate
+                    else
+                        damage = latestEstimate
+                    end
+                    if damage == nil then
                         label.Visible = false
                         return
                     end
