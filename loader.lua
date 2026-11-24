@@ -604,6 +604,202 @@ if gameFileId == 6872274481 then
     bedwarsSource = capSlider(bedwarsSource, 'Mine = Reach:CreateSlider({', 16)
     bedwarsSource = capSlider(bedwarsSource, 'FOV = SilentAim:CreateSlider({', 100)
     bedwarsSource = patchHitFix(bedwarsSource)
+    -- Experimental read-only fall preview; prepend so upstream terminal returns remain valid.
+    bedwarsSource = [==[
+do
+    local api = shared.vape
+    local category = api and api.Categories['Experimental (Ban)']
+    if category then
+        local players = game:GetService('Players')
+        local runService = game:GetService('RunService')
+        local player = players.LocalPlayer
+        local BLOCK = 3
+        local MAX_DEPTH = 512
+        -- Provisional BedWars damage curve; verify in private matches.
+        local SAFE_DROP = 21
+        local DAMAGE_PER_STUD = 1
+        local module
+
+        local function visible(gui)
+            local node = gui
+            while node do
+                if node:IsA('GuiObject') and not node.Visible then return false end
+                if node:IsA('ScreenGui') then return node.Enabled end
+                node = node.Parent
+            end
+            return false
+        end
+
+        local function findHealthBar(playerGui, ownGui, humanoid)
+            local camera = workspace.CurrentCamera
+            if not camera then return nil end
+            local viewport = camera.ViewportSize
+            local best, bestScore
+            for _, obj in ipairs(playerGui:GetDescendants()) do
+                if obj:IsA('GuiObject') and not obj:IsDescendantOf(ownGui) then
+                    local name = obj.Name:lower():gsub('[^%w]', '')
+                    local score = 0
+                    if name == 'healthbar' then score = 100
+                    elseif name:find('healthbar', 1, true) or name:find('healthmeter', 1, true) then score = 80
+                    elseif name == 'health' or name == 'healthcontainer' or name == 'healthfill' then score = 60
+                    end
+                    local candidate = obj
+                    if score == 0 and obj:IsA('TextLabel') then
+                        local text = obj.Text:gsub('%s', '')
+                        local hp = tostring(math.floor(humanoid.Health + 0.5))
+                        local maxHp = tostring(math.floor(humanoid.MaxHealth + 0.5))
+                        if text == hp .. '/' .. maxHp or text == hp .. 'HP' then
+                            candidate = obj.Parent
+                            score = 40
+                        end
+                    end
+                    if score > 0 and candidate and candidate:IsA('GuiObject') and visible(candidate) then
+                        local size, pos = candidate.AbsoluteSize, candidate.AbsolutePosition
+                        local center = pos.X + size.X * 0.5
+                        if size.X >= 70 and size.X <= viewport.X * 0.8
+                            and size.Y >= 5 and size.Y <= 100
+                            and pos.Y > viewport.Y * 0.52
+                            and math.abs(center - viewport.X * 0.5) < viewport.X * 0.3 then
+                            score = score - math.abs(center - viewport.X * 0.5) / 100
+                            if not bestScore or score > bestScore then
+                                best, bestScore = candidate, score
+                            end
+                        end
+                    end
+                end
+            end
+            return best
+        end
+
+        local function preview(character, root, humanoid)
+            local forward = humanoid.MoveDirection
+            forward = Vector3.new(forward.X, 0, forward.Z)
+            if forward.Magnitude < 0.05 then
+                local look = root.CFrame.LookVector
+                forward = Vector3.new(look.X, 0, look.Z)
+            end
+            if forward.Magnitude < 0.05 then return nil end
+            forward = forward.Unit
+            local right = Vector3.new(-forward.Z, 0, forward.X)
+
+            local excluded = {character}
+            for _, other in ipairs(players:GetPlayers()) do
+                if other ~= player and other.Character then
+                    table.insert(excluded, other.Character)
+                end
+            end
+            local params = RaycastParams.new()
+            params.FilterType = Enum.RaycastFilterType.Exclude
+            params.FilterDescendantsInstances = excluded
+            params.RespectCanCollide = true
+            params.IgnoreWater = true
+
+            -- Derive the foot plane from the avatar, not a saved world position.
+            local footY = root.Position.Y - root.Size.Y * 0.5 - humanoid.HipHeight
+            if humanoid.RigType == Enum.HumanoidRigType.R6 then
+                local leg = character:FindFirstChild('Left Leg')
+                footY = footY - (leg and leg.Size.Y or 2)
+            end
+            local support = workspace:Raycast(
+                Vector3.new(root.Position.X, footY + 1.5, root.Position.Z),
+                Vector3.new(0, -3, 0), params)
+            if support then footY = support.Position.Y end
+
+            local origin = Vector3.new(root.Position.X, footY + 1.5, root.Position.Z)
+            local maxDrop = 0
+            -- Four rows cover the next two 3-stud blocks, three rays per row.
+            -- Median depth avoids flagging an isolated edge sample as a hole.
+            for row = 1, 4 do
+                local depths = {}
+                for _, offset in ipairs({-0.75, 0, 0.75}) do
+                    local sample = origin + forward * (row * BLOCK * 0.5) + right * offset
+                    local hit = workspace:Raycast(sample, Vector3.new(0, -MAX_DEPTH, 0), params)
+                    table.insert(depths, hit and math.max(0, footY - hit.Position.Y) or math.huge)
+                end
+                table.sort(depths)
+                if depths[2] == math.huge then return math.huge end
+                maxDrop = math.max(maxDrop, depths[2])
+            end
+            return math.floor(math.max(0, maxDrop - SAFE_DROP) * DAMAGE_PER_STUD + 0.5)
+        end
+
+        module = category:CreateModule({
+            Name = 'FallDamageHUD',
+            Tooltip = 'Estimates fall damage in the next two blocks. Experimental damage formula.',
+            Function = function(enabled)
+                if not enabled or not module.Enabled then return end
+                local playerGui = player:FindFirstChildOfClass('PlayerGui')
+                if not playerGui then return end
+                local existing = playerGui:FindFirstChild('ElianTestingFallDamageHUD')
+                if existing then existing:Destroy() end
+                local screen = Instance.new('ScreenGui')
+                screen.Name = 'ElianTestingFallDamageHUD'
+                screen.ResetOnSpawn = false
+                screen.Parent = playerGui
+                module:Clean(screen)
+
+                local label = Instance.new('TextLabel')
+                label.AnchorPoint = Vector2.new(0.5, 1)
+                label.Size = UDim2.fromOffset(166, 23)
+                label.BackgroundColor3 = Color3.fromRGB(24, 26, 30)
+                label.BackgroundTransparency = 0.12
+                label.BorderSizePixel = 0
+                label.TextColor3 = Color3.fromRGB(245, 245, 245)
+                label.TextSize = 13
+                label.Font = Enum.Font.GothamMedium
+                label.Visible = false
+                label.Parent = screen
+                local corner = Instance.new('UICorner')
+                corner.CornerRadius = UDim.new(0, 4)
+                corner.Parent = label
+
+                local bar, elapsed, scanElapsed = nil, 0.1, 1
+                module:Clean(runService.Heartbeat:Connect(function(dt)
+                    if not module.Enabled or not screen.Parent then return end
+                    elapsed = elapsed + dt
+                    scanElapsed = scanElapsed + dt
+                    if elapsed < 0.1 then return end
+                    elapsed = 0
+                    local character = player.Character
+                    local humanoid = character and character:FindFirstChildOfClass('Humanoid')
+                    local root = character and character:FindFirstChild('HumanoidRootPart')
+                    if not humanoid or humanoid.Health <= 0 or not root then
+                        label.Visible = false
+                        bar = nil
+                        return
+                    end
+                    if scanElapsed >= 1 then
+                        scanElapsed = 0
+                        bar = findHealthBar(playerGui, screen, humanoid)
+                    end
+                    if not bar or not bar.Parent or not visible(bar) then
+                        label.Visible = false
+                        return
+                    end
+                    local sourceGui = bar:FindFirstAncestorOfClass('ScreenGui')
+                    if not sourceGui then label.Visible = false return end
+                    screen.IgnoreGuiInset = sourceGui.IgnoreGuiInset
+                    pcall(function() screen.ScreenInsets = sourceGui.ScreenInsets end)
+                    screen.DisplayOrder = sourceGui.DisplayOrder + 1
+
+                    local ok, damage = pcall(preview, character, root, humanoid)
+                    if not ok or damage == nil then
+                        label.Visible = false
+                        return
+                    end
+                    local pos, size = bar.AbsolutePosition, bar.AbsoluteSize
+                    local base = screen.AbsolutePosition
+                    label.Position = UDim2.fromOffset(
+                        pos.X + size.X * 0.5 - base.X, pos.Y - base.Y - 4)
+                    label.Text = damage == math.huge and 'Fall damage: no ground'
+                        or ('Est. fall damage: ' .. tostring(damage) .. ' HP')
+                    label.Visible = true
+                end))
+            end
+        })
+    end
+end
+]==] .. '\n' .. bedwarsSource
 end
 writefile('elianware_testing/games/' .. tostring(gameFileId) .. '.lua', elianNamespaceSource(bedwarsSource))
 
