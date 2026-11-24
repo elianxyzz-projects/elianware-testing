@@ -719,9 +719,9 @@ do
 
             local origin = Vector3.new(root.Position.X, footY + 1.5, root.Position.Z)
             local maxDrop = 0
-            -- Four rows cover the next two 3-stud blocks, three rays per row.
+            -- Eight rows cover the next four 3-stud blocks, three rays per row.
             -- Median depth avoids flagging an isolated edge sample as a hole.
-            for row = 1, 4 do
+            for row = 1, 8 do
                 local depths = {}
                 for _, offset in ipairs({-0.75, 0, 0.75}) do
                     local sample = origin + forward * (row * BLOCK * 0.5) + right * offset
@@ -738,7 +738,7 @@ do
 
         module = category:CreateModule({
             Name = 'FallDamageHUD',
-            Tooltip = 'Estimates fall damage in the next two blocks. Experimental damage formula.',
+            Tooltip = 'Estimates fall damage in the next four blocks. Experimental damage formula.',
             Function = function(enabled)
                 if not enabled or not module.Enabled then return end
                 local playerGui = player:FindFirstChildOfClass('PlayerGui')
